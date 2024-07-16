@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 OTA Update</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+        button { margin: 10px; padding: 10px; }
+        #log { text-align: left; margin: 20px; padding: 10px; border: 1px solid #ccc; height: 200px; overflow-y: scroll; }
+    </style>
+</head>
+<body>
+    <h1>ESP32 OTA Update</h1>
+    <button id="connectBtn">Connect to ESP32</button>
+    <div id="controls" style="display:none;">
+        <input type="file" id="fileInput" accept=".bin">
+        <button id="uploadBtn">Upload Firmware</button>
+    </div>
+    <div id="log"></div>
+
+    <script>
+        const serviceUUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const characteristicUUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+        let device, characteristic;
+
+        function log(message) {
+            const logElement = document.getElementById('log');
+            logElement.innerHTML += message + '<br>';
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(message);
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', connectToESP32);
+        document.getElementById('uploadBtn').addEventListener('click', uploadFirmware);
+
+        async function connectToESP32() {
+            try {
+                log('Requesting Bluetooth Device...');
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [serviceUUID] }]
+                });
+                
+                log('Connecting to GATT Server...');
+                const server = await device.gatt.connect();
+                
+                log('Getting Primary Service...');
+                const service = await server.getPrimaryService(serviceUUID);
+                
+                log('Getting Characteristic...');
+                characteristic = await service.getCharacteristic(characteristicUUID);
+                
+                log('Connected successfully');
+                document.getElementById('connectBtn').style.display = 'none';
+                document.getElementById('controls').style.display = 'block';
+            } catch (error) {
+                log('Connection failed: ' + error);
+            }
+        }
+
+        async function uploadFirmware() {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) {
+                log('Please select a firmware file');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const firmware = new Uint8Array(e.target.result);
+                    log('Starting OTA update...');
+                    await characteristic.writeValue(new TextEncoder().encode(`OTA${firmware.length}`));
+                    
+                    for (let i = 0; i < firmware.length; i += 512) {
+                        const chunk = firmware.slice(i, i + 512);
+                        await characteristic.writeValue(chunk);
+                        log(`Uploaded ${i + chunk.length} / ${firmware.length} bytes`);
+                    }
+
+                    log('Firmware uploaded successfully. ESP32 will restart.');
+                } catch (error) {
+                    log('Error during firmware upload: ' + error);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    </script>
+</body>
+</html>
