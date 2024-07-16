@@ -2,12 +2,60 @@
 <html>
 <head>
   <title>ESP32 LED Control</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 50px;
+    }
+    h1 {
+      font-size: 24px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px;
+      font-size: 16px;
+    }
+    #led {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background-color: #ddd;
+      display: inline-block;
+      margin-top: 20px;
+    }
+    #popup {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+    }
+    #popup-content {
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
   <h1>ESP32 LED Control</h1>
   <button onclick="connect()">Connect</button>
   <button onclick="turnOn()">Turn ON</button>
   <button onclick="turnOff()">Turn OFF</button>
+  <div id="led"></div>
+
+  <div id="popup">
+    <div id="popup-content">
+      <p>Connection established!</p>
+      <button onclick="closePopup()">OK</button>
+    </div>
+  </div>
 
   <script>
     let device;
@@ -19,11 +67,12 @@
           filters: [{ name: 'ESP32_LED_Control' }],
           optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']
         });
-        
+
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
         characteristic = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
-        console.log('Connected');
+        
+        showPopup();
       } catch (error) {
         console.log('Failed to connect', error);
       }
@@ -31,10 +80,29 @@
 
     async function turnOn() {
       await characteristic.writeValue(new TextEncoder().encode('ON'));
+      updateLedState('ON');
     }
 
     async function turnOff() {
       await characteristic.writeValue(new TextEncoder().encode('OFF'));
+      updateLedState('OFF');
+    }
+
+    function showPopup() {
+      document.getElementById('popup').style.display = 'flex';
+    }
+
+    function closePopup() {
+      document.getElementById('popup').style.display = 'none';
+    }
+
+    function updateLedState(state) {
+      const led = document.getElementById('led');
+      if (state === 'ON') {
+        led.style.backgroundColor = 'green';
+      } else {
+        led.style.backgroundColor = '#ddd';
+      }
     }
   </script>
 </body>
