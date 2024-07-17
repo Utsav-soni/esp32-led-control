@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 OTA Update</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(90, 90, 90, 0.1) 0%, transparent 20%),
+                radial-gradient(circle at 90% 80%, rgba(90, 90, 90, 0.1) 0%, transparent 20%);
+        }
+        .container {
+            background-color: #16213e;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #00fff5;
+            text-shadow: 0 0 10px rgba(0, 255, 245, 0.5);
+            margin-bottom: 30px;
+        }
+        button {
+            background-color: #0f3460;
+            color: #e0e0e0;
+            border: none;
+            padding: 12px 20px;
+            margin: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #16213e;
+            box-shadow: 0 0 15px rgba(0, 255, 245, 0.5);
+        }
+        #log {
+            text-align: left;
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #0f3460;
+            border-radius: 5px;
+            height: 200px;
+            overflow-y: scroll;
+            background-color: #0a0a23;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            color: #00ff00;
+        }
+        #fileInput {
+            display: none;
+        }
+        #fileLabel {
+            display: inline-block;
+            padding: 12px 20px;
+            background-color: #0f3460;
+            color: #e0e0e0;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        #fileLabel:hover {
+            background-color: #16213e;
+            box-shadow: 0 0 15px rgba(0, 255, 245, 0.5);
+        }
+        .progress-bar {
+            width: 100%;
+            background-color: #0a0a23;
+            border-radius: 5px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+        .progress {
+            width: 0%;
+            height: 10px;
+            background-color: #00fff5;
+            transition: width 0.3s ease;
+        }
+        .led-status {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-left: 10px;
+        }
+        .led-on {
+            background-color: #00ff00;
+        }
+        .led-off {
+            background-color: #ff0000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ESP32 OTA Update</h1>
+        <button id="connectBtn">Connect to ESP32</button>
+        <div id="controls" style="display:none;">
+            <label for="fileInput" id="fileLabel">Choose Firmware</label>
+            <input type="file" id="fileInput">
+            <span id="fileName"></span>
+            <button id="uploadBtn">Upload Firmware</button>
+            <div class="progress-bar">
+                <div class="progress" id="progressBar"></div>
+            </div>
+            <button id="ledOnBtn">LED ON</button>
+            <button id="ledOffBtn">LED OFF</button>
+            <span class="led-status" id="ledStatus"></span>
+        </div>
+        <button id="toggleLogBtn">Toggle Log</button>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        const serviceUUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+        const otaCharacteristicUUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+        const ledCharacteristicUUID = '62c3efa9-f131-4c4d-a352-d5a6b2952afc';
+        let device, otaCharacteristic, ledCharacteristic;
+
+        function log(message) {
+            const logElement = document.getElementById('log');
+            logElement.innerHTML += message + '<br>';
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        async function connect() {
+            try {
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [serviceUUID] }]
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(serviceUUID);
+                otaCharacteristic = await service.getCharacteristic(otaCharacteristicUUID);
+                ledCharacteristic = await service.getCharacteristic(ledCharacteristicUUID);
+                log('Connected to ESP32');
+                document.getElementById('controls').style.display = 'block';
+            } catch (error) {
+                log('Connection failed: ' + error);
+            }
+        }
+
+        async function uploadFirmware(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async function(event) {
+                const firmware = new Uint8Array(event.target.result);
+                const chunkSize = 512;
+                const totalChunks = Math.ceil(firmware.length / chunkSize);
+                await otaCharacteristic.writeValue(new TextEncoder().encode("OTA" + firmware.length));
+                log('Starting OTA upload...');
+
+                for (let i = 0; i < totalChunks; i++) {
+                    const chunk = firmware.slice(i * chunkSize, (i + 1) * chunkSize);
+                    await otaCharacteristic.writeValue(chunk);
+                    const progress = Math.round(((i + 1) / totalChunks) * 100);
+                    document.getElementById('progressBar').style.width = progress + '%';
+                    log(`Uploaded ${progress}%`);
+                }
+
+                log('Firmware upload complete');
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        async function controlLED(state) {
+            try {
+                await ledCharacteristic.writeValue(new TextEncoder().encode(state));
+                const ledStatusElement = document.getElementById('ledStatus');
+                if (state === 'ON') {
+                    ledStatusElement.classList.add('led-on');
+                    ledStatusElement.classList.remove('led-off');
+                } else if (state === 'OFF') {
+                    ledStatusElement.classList.add('led-off');
+                    ledStatusElement.classList.remove('led-on');
+                }
+            } catch (error) {
+                log('LED control failed: ' + error);
+            }
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', connect);
+        document.getElementById('fileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                document.getElementById('fileName').textContent = file.name;
+            }
+        });
+        document.getElementById('uploadBtn').addEventListener('click', () => {
+            const file = document.getElementById('fileInput').files[0];
+            uploadFirmware(file);
+        });
+        document.getElementById('ledOnBtn').addEventListener('click', () => controlLED('ON'));
+        document.getElementById('ledOffBtn').addEventListener('click', () => controlLED('OFF'));
+        document.getElementById('toggleLogBtn').addEventListener('click', () => {
+            const logElement = document.getElementById('log');
+            logElement.style.display = logElement.style.display === 'none' ? 'block' : 'none';
+        });
+    </script>
+</body>
+</html>
