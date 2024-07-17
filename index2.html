@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 OTA Update</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(90, 90, 90, 0.1) 0%, transparent 20%),
+                radial-gradient(circle at 90% 80%, rgba(90, 90, 90, 0.1) 0%, transparent 20%);
+        }
+        .container {
+            background-color: #16213e;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #00fff5;
+            text-shadow: 0 0 10px rgba(0, 255, 245, 0.5);
+            margin-bottom: 30px;
+        }
+        button {
+            background-color: #0f3460;
+            color: #e0e0e0;
+            border: none;
+            padding: 12px 20px;
+            margin: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #16213e;
+            box-shadow: 0 0 15px rgba(0, 255, 245, 0.5);
+        }
+        #log {
+            text-align: left;
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #0f3460;
+            border-radius: 5px;
+            height: 200px;
+            overflow-y: scroll;
+            background-color: #0a0a23;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            color: #00ff00;
+        }
+        #fileInput {
+            display: none;
+        }
+        #fileLabel {
+            display: inline-block;
+            padding: 12px 20px;
+            background-color: #0f3460;
+            color: #e0e0e0;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        #fileLabel:hover {
+            background-color: #16213e;
+            box-shadow: 0 0 15px rgba(0, 255, 245, 0.5);
+        }
+        .progress-bar {
+            width: 100%;
+            background-color: #0a0a23;
+            border-radius: 5px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+        .progress {
+            width: 0%;
+            height: 10px;
+            background-color: #00fff5;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ESP32 OTA Update</h1>
+        <button id="connectBtn">Connect to ESP32</button>
+        <div id="controls" style="display:none;">
+            <label for="fileInput" id="fileLabel">Choose Firmware</label>
+            <input type="file" id="fileInput" accept=".bin">
+            <button id="uploadBtn">Upload Firmware</button>
+        </div>
+        <div id="log"></div>
+        <div class="progress-bar">
+            <div class="progress" id="progressBar"></div>
+        </div>
+    </div>
+
+    <script>
+        const serviceUUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const characteristicUUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+        let device, characteristic;
+
+        function log(message) {
+            const logElement = document.getElementById('log');
+            logElement.innerHTML += message + '<br>';
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(message);
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', connectToESP32);
+        document.getElementById('uploadBtn').addEventListener('click', uploadFirmware);
+
+        async function connectToESP32() {
+            try {
+                log('Requesting Bluetooth Device...');
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [serviceUUID] }]
+                });
+                
+                log('Connecting to GATT Server...');
+                const server = await device.gatt.connect();
+                
+                log('Getting Primary Service...');
+                const service = await server.getPrimaryService(serviceUUID);
+                
+                log('Getting Characteristic...');
+                characteristic = await service.getCharacteristic(characteristicUUID);
+                
+                log('Connected successfully');
+                document.getElementById('connectBtn').style.display = 'none';
+                document.getElementById('controls').style.display = 'block';
+            } catch (error) {
+                log('Connection failed: ' + error);
+                if (error.message.includes('User cancelled')) {
+                    log('User cancelled the Bluetooth pairing dialog');
+                } else if (error.message.includes('Bluetooth adapter not available')) {
+                    log('Bluetooth is not available on this device or browser');
+                } else {
+                    log('Unknown error occurred. Please check if the ESP32 is powered on and in range');
+                }
+            }
+        }
+
+        async function uploadFirmware() {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) {
+                log('Please select a firmware file');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const firmware = new Uint8Array(e.target.result);
+                    log('Starting OTA update...');
+                    await characteristic.writeValue(new TextEncoder().encode(`OTA${firmware.length}`));
+                    
+                    const progressBar = document.getElementById('progressBar');
+                    for (let i = 0; i < firmware.length; i += 512) {
+                        const chunk = firmware.slice(i, i + 512);
+                        await characteristic.writeValue(chunk);
+                        const progress = ((i + chunk.length) / firmware.length) * 100;
+                        progressBar.style.width = `${progress}%`;
+                        log(`Uploaded ${i + chunk.length} / ${firmware.length} bytes`);
+                    }
+                    log('Firmware uploaded successfully. ESP32 will restart.');
+                } catch (error) {
+                    log('Error during firmware upload: ' + error);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Check if Web Bluetooth is supported
+        if (navigator.bluetooth) {
+            log('Web Bluetooth is supported');
+        } else {
+            log('Web Bluetooth is not supported in this browser');
+            document.getElementById('connectBtn').disabled = true;
+        }
+    </script>
+</body>
+</html>
